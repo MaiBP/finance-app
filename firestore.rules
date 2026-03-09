@@ -1,0 +1,128 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function householdDoc(householdId) {
+      return get(/databases/$(database)/documents/households/$(householdId));
+    }
+
+    function isMember(householdId) {
+      return isAuthenticated()
+        && request.auth.uid in householdDoc(householdId).data.memberUids;
+    }
+
+    // Owner principal: el creador del household (ownerId en household)
+    function isPrimaryOwner(householdId) {
+      return isMember(householdId)
+        && request.auth.uid == householdDoc(householdId).data.ownerId;
+    }
+
+    // Usuario del mismo household que el solicitante
+    function isSameHouseholdUser(uid) {
+      return isAuthenticated()
+        && userDoc(uid).data.householdId != null
+        && userDoc(request.auth.uid).data.householdId == userDoc(uid).data.householdId;
+    }
+
+    function isValidLegacyRole(value) {
+      return value in ["owner", "member"];
+    }
+
+    function isValidHouseholdRole(value) {
+      return value in ["owner", "co_owner", "editor", "reader"];
+    }
+
+    // Self-join: permite que el usuario se agregue SOLO a sí mismo a memberUids
+    function isSelfJoin(householdId) {
+      return isAuthenticated()
+        && !(request.auth.uid in householdDoc(householdId).data.memberUids)
+        && request.resource.data.memberUids.size()
+           == householdDoc(householdId).data.memberUids.size() + 1
+        && request.auth.uid in request.resource.data.memberUids;
+    }
+
+    // ---------- USERS ----------
+    match /users/{uid} {
+      allow create: if isAuthenticated()
+        && request.auth.uid == uid;
+
+      // Lectura propia o de miembros del mismo household (para analytics/perfiles)
+      allow read: if isAuthenticated()
+        && (request.auth.uid == uid || isSameHouseholdUser(uid));
+
+      // Update propio: solo perfil (sin tocar household/roles)
+      allow update: if isAuthenticated()
+        && request.auth.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          "householdId",
+          "role",
+          "householdRole"
+        ]);
+
+      // Update por owner principal: solo rol del miembro de su household
+      allow update: if isAuthenticated()
+        && userDoc(uid).data.householdId != null
+        && isPrimaryOwner(userDoc(uid).data.householdId)
+        && uid in householdDoc(userDoc(uid).data.householdId).data.memberUids
+        && request.resource.data.householdId == resource.data.householdId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "role",
+          "householdRole"
+        ])
+        && isValidLegacyRole(request.resource.data.role)
+        && isValidHouseholdRole(request.resource.data.householdRole)
+        // nadie puede cambiar el owner principal del household desde users
+        && (
+          uid != householdDoc(userDoc(uid).data.householdId).data.ownerId
+          || (
+            request.resource.data.role == "owner"
+            && request.resource.data.householdRole == "owner"
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // ---------- INVITES ----------
+    match /invites/{inviteCode} {
+      allow read: if isAuthenticated();
+
+      // Solo owner principal puede crear invites para su household
+      allow create: if isAuthenticated()
+        && request.resource.data.householdId is string
+        && isPrimaryOwner(request.resource.data.householdId);
+
+      allow update, delete: if false;
+    }
+
+    // ---------- HOUSEHOLDS ----------
+    match /households/{householdId} {
+      allow create: if isAuthenticated()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.auth.uid in request.resource.data.memberUids;
+
+      allow read: if isMember(householdId);
+
+      // Update del household: owner principal o self-join
+      allow update: if isPrimaryOwner(householdId) || isSelfJoin(householdId);
+
+      allow delete: if false;
+
+      match /expenses/{expenseId} {
+        allow read, write: if isMember(householdId);
+      }
+
+      match /incomes/{incomeId} {
+        allow read, write: if isMember(householdId);
+      }
+    }
+  }
+}
