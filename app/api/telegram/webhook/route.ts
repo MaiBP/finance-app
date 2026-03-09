@@ -168,7 +168,7 @@ function balanceModeKeyboard() {
 
 function parseCsvMonths(raw: string) {
   if (!raw || raw === "0") return new Set<string>();
-  const valid = new Set(MONTHS.map((m) => m.key));
+  const valid = new Set<string>(MONTHS.map((m) => m.key));
   return new Set(
     raw
       .split(",")
