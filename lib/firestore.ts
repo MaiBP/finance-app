@@ -294,7 +294,7 @@ export async function linkOwnerToHousehold(params: {
   role?: "owner" | "member";
 }) {
   const householdRole: HouseholdRole = "owner";
-  const legacyRole = householdRole === "owner" || householdRole === "co_owner" ? "owner" : "member";
+  const legacyRole = "owner";
 
   await setDoc(
     doc(db, "users", params.uid),
@@ -316,7 +316,7 @@ export async function linkMemberToHousehold(params: {
   householdId: string;
 }) {
   const householdRole: HouseholdRole = "editor";
-  const legacyRole = householdRole === "owner" || householdRole === "co_owner" ? "owner" : "member";
+  const legacyRole = "member";
 
   await setDoc(
     doc(db, "users", params.uid),
