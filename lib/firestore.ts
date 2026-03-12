@@ -318,6 +318,10 @@ export async function linkMemberToHousehold(params: {
   const householdRole: HouseholdRole = "editor";
   const legacyRole = "member";
 
+  await updateDoc(doc(db, "households", params.householdId), {
+    memberUids: arrayUnion(params.uid),
+  });
+
   await setDoc(
     doc(db, "users", params.uid),
     {
@@ -327,10 +331,6 @@ export async function linkMemberToHousehold(params: {
     },
     { merge: true }
   );
-
-  await updateDoc(doc(db, "households", params.householdId), {
-    memberUids: arrayUnion(params.uid),
-  });
 }
 
 // ---------- INVITE CODE ----------
